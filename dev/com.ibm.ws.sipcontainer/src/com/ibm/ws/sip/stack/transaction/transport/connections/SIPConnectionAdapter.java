@@ -224,7 +224,7 @@ public abstract class SIPConnectionAdapter
 	 * (non-Javadoc)
 	 * @see com.ibm.ws.sip.stack.transaction.transport.connections.SIPConnection#connectionError(java.lang.Exception)
 	 */
-	public void connectionError(Exception e) {
+	public void connectionError(Throwable e) {
 		if (isClosed()) {
 			// the first call to this event called close(),
 			// which triggered this event a second time.
@@ -261,7 +261,7 @@ public abstract class SIPConnectionAdapter
 	 *  
 	 * @param e - the exception that was thrown
 	 */
-	protected void cleanPendingMessages(List<MessageContext> pendingMessages, Exception e) {
+	protected void cleanPendingMessages(List<MessageContext> pendingMessages, Throwable e) {
 		if (c_logger.isTraceEntryExitEnabled()) {
 			c_logger.traceEntry(this, "cleanPendingMessages",
 				"entry");

@@ -10,6 +10,8 @@
  *******************************************************************************/
 package com.ibm.ws.sip.stack.transport.sip;
 
+import io.netty.channel.Channel;
+
 /**
  * represents an outbound tls connection
  * 
@@ -23,8 +25,8 @@ public class SipTlsOutboundConnLink extends SipOutboundConnLink
 	 * @param peerPort remote port number
 	 * @param channel channel that created this connection
 	 */
-	public SipTlsOutboundConnLink(String peerHost, int peerPort, SipInboundChannel channel) {
-		super(peerHost, peerPort, channel);
+	public SipTlsOutboundConnLink(String peerHost, int peerPort, SipInboundChannel sipInboundChannel, Channel channel) {
+		super(peerHost, peerPort, sipInboundChannel, channel);
 	}
 	
 	// ----------------------------

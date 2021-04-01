@@ -29,7 +29,6 @@ Export-Package: \
 
 Private-Package: \
   com.ibm.sip*, \
-  com.ibm.ws.generic.transport.channel.framework.*,\
   com.ibm.ws.sip*, \
   !com.ibm.ws.sip.container.osgi, \
   !com.ibm.ws.sip.container.was.filters, \
@@ -75,7 +74,8 @@ Import-Package: \
   com.ibm.ws.sip.container.was.message.SipMessageFactory, \
   com.ibm.ws.sip.container.router.SipApplicationListener, \
   com.ibm.ws.sip.container.converged.SessionContextRegistryImplFactoryImplConverged, \
-  com.ibm.ws.sip.container.was.filters.ApplState
+  com.ibm.ws.sip.container.was.filters.ApplState, \
+  com.ibm.ws.sip.stack.netty.transport.LibertyNettyBundle
  
 Include-Resource: \
   OSGI-INF=resources/OSGI-INF, \
@@ -112,4 +112,6 @@ instrument.disabled: true
 	com.ibm.websphere.org.osgi.service.cm;version=latest,\
 	com.ibm.websphere.appserver.api.ssl;version=latest,\
 	com.ibm.ws.org.osgi.annotation.versioning;version=latest,\
-	com.ibm.websphere.javaee.jaxws.2.2;version=latest
+	com.ibm.websphere.javaee.jaxws.2.2;version=latest,\
+ 	com.ibm.ws.kernel.feature,\
+    io.openliberty.io.netty;version=latest

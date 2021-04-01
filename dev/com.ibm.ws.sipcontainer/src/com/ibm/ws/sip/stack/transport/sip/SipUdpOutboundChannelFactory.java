@@ -27,7 +27,9 @@ public class SipUdpOutboundChannelFactory extends SipChannelFactory
 	
 	@Override
 	public Channel findOrCreateChannel(ChannelData config){
-		return new SipUdpOutboundChannel(config);
+		//return new SipUdpOutboundChannel(config);
+		// TODO ANNA implement 
+		return null;
 	
 	}
 

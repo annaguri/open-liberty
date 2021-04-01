@@ -10,6 +10,8 @@
  *******************************************************************************/
 package com.ibm.ws.sip.stack.transport.sip;
 
+import io.netty.channel.Channel;
+
 /**
  * represents an outbound tcp connection
  * 
@@ -21,10 +23,11 @@ public class SipTcpOutboundConnLink extends SipOutboundConnLink
 	 * constructor for outbound connections
 	 * @param peerHost remote host address in dotted form
 	 * @param peerPort remote port number
-	 * @param channel channel that created this connection
+	 * @param sipInboundChannel channel that created this connection
+	 * @param channel Netty channel associated with that SIP channel
 	 */
-	public SipTcpOutboundConnLink(String peerHost, int peerPort, SipInboundChannel channel) {
-		super(peerHost, peerPort, channel);
+	public SipTcpOutboundConnLink(String peerHost, int peerPort, SipInboundChannel sipInboundChannel, Channel channel) {
+		super(peerHost, peerPort, sipInboundChannel, channel);
 	}
 	
 	// ----------------------------

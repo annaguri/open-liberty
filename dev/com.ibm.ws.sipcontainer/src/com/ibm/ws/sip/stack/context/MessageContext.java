@@ -10,8 +10,6 @@
  *******************************************************************************/
 package com.ibm.ws.sip.stack.context;
 
-import jain.protocol.ip.sip.message.Message;
-
 import java.io.IOException;
 
 import com.ibm.sip.util.log.Log;
@@ -20,15 +18,15 @@ import com.ibm.ws.sip.stack.transaction.SIPTransactionStack;
 import com.ibm.ws.sip.stack.transaction.transactions.SIPTransaction;
 import com.ibm.ws.sip.stack.transaction.transport.IBackupMessageSender;
 import com.ibm.ws.sip.stack.transaction.transport.TransportCommLayerMgr;
-import com.ibm.ws.sip.stack.transaction.transport.connections.SIPConnection;
-import com.ibm.ws.sip.stack.transaction.transport.connections.SipMessageByteBuffer;
-import com.ibm.ws.sip.stack.transaction.transport.connections.SipStreamConnectionWriteListener;
+import com.ibm.ws.sip.stack.transaction.transport.connections.*;
 import com.ibm.ws.sip.stack.util.StackExternalizedPerformanceMgr;
 import com.ibm.ws.sip.stack.util.StackTaskDurationMeasurer;
-import com.ibm.wsspi.bytebuffer.WsByteBuffer;
 import com.ibm.wsspi.channelfw.VirtualConnection;
-import com.ibm.wsspi.tcpchannel.TCPWriteCompletedCallback;
 import com.ibm.wsspi.tcpchannel.TCPWriteRequestContext;
+
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
+import jain.protocol.ip.sip.message.Message;
 
 /**
  * the context holding all relevant information for sending a message
@@ -38,7 +36,7 @@ import com.ibm.wsspi.tcpchannel.TCPWriteRequestContext;
  * 
  * @author nogat
  */
-public abstract class MessageContext implements TCPWriteCompletedCallback, SipStreamConnectionWriteListener{
+public abstract class MessageContext implements SipStreamConnectionWriteListener, ChannelFutureListener {
 
 	/** class logger */
 	private static final LogMgr s_logger = Log.get(MessageContext.class);
@@ -73,11 +71,6 @@ public abstract class MessageContext implements TCPWriteCompletedCallback, SipSt
 	 * we need it to return it to the factory at the end 
 	 */
 	private IBackupMessageSender sender = null;
-
-	/**
-	 * the ws byte buffer
-	 */
-	private WsByteBuffer wsByteBuffer;
 	
 	/** 
 	 * Performance Manager Interface
@@ -225,22 +218,6 @@ public abstract class MessageContext implements TCPWriteCompletedCallback, SipSt
 	}
 
 	/**
-	 * @return the wsByteBuffer
-	 */
-	public WsByteBuffer getWsByteBuffer() {
-		assertNotRecycled();
-		return wsByteBuffer;
-	}
-
-	/**
-	 * @param wsByteBuffer the wsByteBuffer to set
-	 */
-	public void setWsByteBuffer(WsByteBuffer wsByteBuffer) {
-		assertNotRecycled();
-		this.wsByteBuffer = wsByteBuffer;
-	}
-
-	/**
 	 * called when switching transport from UDP to TCP in case the request
 	 * is too large for UDP
 	 */
@@ -259,14 +236,16 @@ public abstract class MessageContext implements TCPWriteCompletedCallback, SipSt
 
 	
 	@Override
-	/*
-	 * (non-Javadoc)
-	 * @see com.ibm.wsspi.tcpchannel.TCPWriteCompletedCallback#complete(com.ibm.wsspi.channelfw.VirtualConnection, com.ibm.wsspi.tcpchannel.TCPWriteRequestContext)
-	 */
-	public void complete(VirtualConnection vc, TCPWriteRequestContext wsc) {
-		writeComplete();
-		
-	}
+    public void operationComplete(ChannelFuture future) throws Exception {
+		if (s_logger.isTraceDebugEnabled()) {
+			s_logger.traceDebug(this, "operationComplete", "[" + future.isSuccess() + "]");
+		}
+       if (future.isSuccess()) {
+        	writeComplete();
+        } else {
+        	writeError(null);
+        }
+    }
 
 	/**
 	 * @see com.ibm.wsspi.tcpchannel.TCPWriteCompletedCallback#error(com.ibm.wsspi.channelfw.VirtualConnection, com.ibm.wsspi.tcpchannel.TCPWriteRequestContext, java.io.IOException)
@@ -286,7 +265,7 @@ public abstract class MessageContext implements TCPWriteCompletedCallback, SipSt
 	 * 
 	 * @param e the {@link Exception} that occurred.
 	 */
-	public void writeError(Exception e) {
+	public void writeError(Throwable e) {
 		assertNotRecycled();
 		if (s_logger.isTraceDebugEnabled()) {
 			s_logger.traceDebug(this,"writeError","an error occurred while " +
@@ -384,7 +363,6 @@ public abstract class MessageContext implements TCPWriteCompletedCallback, SipSt
 		naptrCalled = false;
 		sipTransaction = null;
 		sender = null;
-		wsByteBuffer = null;
 		m_mtuSwitch = false;
 		_sipContainerQueueDuration = null;
 	}

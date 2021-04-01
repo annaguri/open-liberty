@@ -19,25 +19,16 @@ import org.osgi.service.event.EventAdmin;
 
 import com.ibm.sip.util.log.Log;
 import com.ibm.sip.util.log.LogMgr;
-import com.ibm.websphere.channelfw.ChainData;
-import com.ibm.websphere.channelfw.ChannelData;
-import com.ibm.websphere.channelfw.EndPointMgr;
-import com.ibm.websphere.channelfw.FlowType;
-import com.ibm.websphere.channelfw.osgi.CHFWBundle;
 import com.ibm.websphere.ras.annotation.Trivial;
-import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.sip.stack.netty.transport.LibertyNettyBundle;
 import com.ibm.wsspi.channelfw.ChainEventListener;
-import com.ibm.wsspi.channelfw.ChannelFramework;
-import com.ibm.wsspi.channelfw.exception.ChainException;
-import com.ibm.wsspi.channelfw.exception.ChannelException;
-import com.ibm.wsspi.channelfw.exception.RetryableChannelException;
 import com.ibm.wsspi.kernel.service.utils.FrameworkState;
 
 /**
  * Encapsulation of steps for starting/stopping an SIP chain in a controlled/predictable
  * manner with a minimum of synchronization.
  */
-abstract public class GenericChain implements ChainEventListener {
+abstract public class GenericChain {
     
 	/**
      * Class Logger. 
@@ -58,7 +49,7 @@ abstract public class GenericChain implements ChainEventListener {
     
 	/** this member is increased for each new chain when it is created. */
     protected static int s_chains = 0;
-
+    
 	/** ENUM which holds the current state for ths particular chain */
     enum ChainState {
         UNINITIALIZED(0, "UNINITIALIZED"),
@@ -106,9 +97,9 @@ abstract public class GenericChain implements ChainEventListener {
             return "UNKNOWN";
         }
     }
+    
+    public enum Type {tcp, tls, udp};
 
-    /** Referece to the class which is delayed the stop action  */
-    private final StopWait stopWait = new StopWait();
     
     /** Owner of this Chain - Endpoint Impl	 */
     protected final GenericEndpointImpl owner;
@@ -122,11 +113,8 @@ abstract public class GenericChain implements ChainEventListener {
     /** Chain name	 */
     private String chainName;
     
-    /** Reference to Channel Framework*/
-    private ChannelFramework cfw;
-    
-    /** Endpoint manager */
-    protected EndPointMgr endpointMgr;
+    /** Reference to Netty bundle*/
+    private LibertyNettyBundle nettyBundle;
 
 
 	/**
@@ -195,12 +183,11 @@ abstract public class GenericChain implements ChainEventListener {
      * @param componentId The DS component id
      * @param cfw Channel framework
      */
-   public void init(String endpointId, Object componentId, CHFWBundle cfBundle, String name) {
+   public void init(String endpointId, Object componentId, LibertyNettyBundle nettyBundle, String name) {
 
 	   String chainNumber = String.valueOf(s_chains++);
 	   
-        cfw = cfBundle.getFramework();
-        endpointMgr = cfBundle.getEndpointManager();
+        this.nettyBundle = nettyBundle;
 
         endpointName = endpointId;
         
@@ -217,15 +204,6 @@ abstract public class GenericChain implements ChainEventListener {
 		return chainName;
 	}
 
-
-   
-/**
-    * Returns ChannelFramework
-    * @return
-    */
-   public ChannelFramework getCfw() {
-		return cfw;
-	}
 
     /**
      * Enable this chain: this happens automatically for the sip chain,
@@ -268,164 +246,6 @@ abstract public class GenericChain implements ChainEventListener {
     protected GenericEndpointImpl getOwner() {
 		return owner;
 	}
-    
-    /**
-     * Stop this chain
-     */
-    public synchronized void stop() {
-        if (c_logger.isEventEnabled()) {
-            c_logger.event("stop chain " + this);
-        }
-
-        // We don't have to check enabled/disabled here: chains are always allowed to stop.
-        if (currentConfig == null || chainState.get() <= ChainState.QUIESCED.val)
-            return;
-
-        // Quiesce and then stop the chain. The CFW internally uses a StopTimer for 
-        // the quiesce/stop operation-- the listener method will be called when the chain
-        // has stopped. So to see what happens next, visit chainStopped
-        try {
-            ChainData cd = cfw.getChain(chainName);
-            if (cd != null) {
-                cfw.stopChain(cd, cfw.getDefaultChainQuiesceTimeout());
-            }
-        } catch (ChannelException e) {
-            if (c_logger.isTraceDebugEnabled()) {
-                c_logger.traceDebug("Error stopping chain " + chainName, this, e);
-            }
-        } catch (ChainException e) {
-            if (c_logger.isTraceDebugEnabled()) {
-                c_logger.traceDebug("Error stopping chain " + chainName, this, e);
-            }
-        }
-    }
-    
-    
-    /**
-     * Return channel by name from ChannelFramework
-     * @param name
-     * @return
-     */
-    protected ChannelData getChannel(String name){
-    	return cfw.getChannel(name);
-    }
-    
-    
-    /**
-     * Adding channel to the ChannelFramwork
-     * @param name
-     * @param factoryName
-     * @param chanProps
-     * @param newConfig
-     * @return
-     */
-    protected ChannelData addChannel(String name, String factoryName, Map<Object, Object> chanProps, ActiveConfiguration newConfig){
-    	try {
-			return cfw.addChannel(name, cfw.lookupFactory(factoryName), chanProps);
-		} catch (ChannelException e) {
-			handleStartupError(e, newConfig); // FFDCIgnore: CFW will have logged and FFDCd already
-		}
-    	return null;
-    }
-    
-    /**
-     * Starts Chain
-     * @param newConfig
-     */
-    protected synchronized void startChain(ActiveConfiguration newConfig) {
-    	
-    	
-    	try {
-			int retries = getOwner().retries;
-			do {
-				try {
-					 cfw.startChain(chainName);
-					// get here if chain started successfully
-					 if (c_logger.isTraceDebugEnabled()) {
-						 c_logger.traceDebug("startChannels", "chain started [" + chainName + ']');
-					}
-					retries = 0;
-				}
-				catch (RetryableChannelException e) {
-					// failure, try again
-					if (c_logger.isTraceDebugEnabled()) {
-						 c_logger.traceDebug(
-							"startChannels",
-							"RetryableChannelException. Retries left [" + (retries-1) + ']',
-							e);
-					}
-					if (--retries > 0) {
-						try {
-							Thread.sleep(getOwner().retry_delay);
-						}
-						catch (InterruptedException interruptedException) {
-							if (c_logger.isTraceDebugEnabled()) {
-								c_logger.traceDebug("startChannels", "", interruptedException);
-							}
-						}
-					}
-				}
-			} while (retries > 0);
-		}
-    	 catch (ChannelException e) {
-	        handleStartupError(e, newConfig); // FFDCIgnore: CFW will have logged and FFDCd already
-	    } catch (ChainException e) {
-	        handleStartupError(e, newConfig); // FFDCIgnore: CFW will have logged and FFDCd already
-	    } catch (Exception e) {
-	        // The exception stack for this is all internals and does not belong in messages.log.
-	    	if (c_logger.isErrorEnabled())
-	    		c_logger.error("start.sipChain.error", getName(), e.toString());
-	        handleStartupError(e, newConfig);
-	    }
-    }
-    
-    /**
-     * Stops the Chain
-     * @param oldConfig
-     */
-    protected synchronized void stopChain(String oldConfig) {
-    	
-    	 // Stop the chain-- will have to be recreated when port is updated
-        // notification/follow-on of stop operation is in the chainStopped listener method
-        try {
-            ChainData cd = cfw.getChain(chainName);
-            if (cd != null) {
-                cfw.stopChain(cd, cfw.getDefaultChainQuiesceTimeout());
-                stopWait.waitForStop(cfw.getDefaultChainQuiesceTimeout()); // BLOCK
-                cfw.destroyChain(cd);
-                cfw.removeChain(cd);
-            }
-        } catch (ChannelException e) {
-            if (c_logger.isTraceDebugEnabled()) {
-                c_logger.traceDebug("Error stopping chain " + chainName, oldConfig, e);
-            }
-        } catch (ChainException e) {
-            if (c_logger.isTraceDebugEnabled()) {
-                c_logger.traceDebug("Error stopping chain " + chainName, oldConfig, e);
-            }
-        }
-    }
-    
-
-    @FFDCIgnore({ ChannelException.class, ChainException.class })
-    protected void removeChannel(String name) {
-        // Neither of the thrown exceptions are permanent failures: 
-        // they usually indicate that we're the victim of a race.
-        // If the CFW is also tearing down the chain at the same time 
-        // (for example, the SSL feature was removed), then this could
-        // fail.
-        try {
-            cfw.removeChannel(name);
-        } catch (ChannelException e) {
-            if (c_logger.isTraceDebugEnabled()) {
-                c_logger.traceDebug("Error removing channel " + name, this, e);
-            }
-        } catch (ChainException e) {
-            if (c_logger.isTraceDebugEnabled()) {
-                c_logger.traceDebug("Error removing channel " + name, this, e);
-            }
-        }
-    }
 
     /**
      * 
@@ -462,7 +282,7 @@ abstract public class GenericChain implements ChainEventListener {
     public String getActiveHost() {
         ActiveConfiguration cfg = currentConfig;
         if (cfg != null){
-            return cfg.activeHost;
+            return cfg.configHost;
         }
         return null;
     }
@@ -472,6 +292,10 @@ abstract public class GenericChain implements ChainEventListener {
    	 */
    	abstract protected String getName();
    
+   	abstract public Type getType();
+
+   	abstract public String getTransport();
+
    	/**
      * Setup event propertied - OSGI
      * @param eventProps
@@ -498,21 +322,11 @@ abstract public class GenericChain implements ChainEventListener {
    	 */
    	abstract protected void rebuildTheChannel(ActiveConfiguration oldConfig, ActiveConfiguration newConfig) ;
 
-    /**
-     * ChainEventListener method.
-     * This method can not be synchronized (deadlock with update/stop).
-     * Rely on CFW synchronization of chain operations.
-     */
-    @Override
-    public void chainInitialized(ChainData chainData) {
-        chainState.set(ChainState.INITIALIZED.val);
-    }
 
     /**
      * Update/start the chain configuration.
      */
     // TODO Liberty - if we are not going to support configuration runtime change - remove unnecessary code. 
-    @FFDCIgnore({ ChannelException.class, ChainException.class })
     public synchronized void update() {
         if (c_logger.isEventEnabled()) {
             c_logger.event("update chain " + this);
@@ -536,9 +350,7 @@ abstract public class GenericChain implements ChainEventListener {
             // save the new/changed configuration before we start setting up the new chain
             setCurrentConfig(newConfig);
 
-            stopChain(oldConfig.toString());
             return;
-            
         } 
         
         if (validOldConfig && newConfig.unchanged(oldConfig)) {
@@ -576,7 +388,10 @@ abstract public class GenericChain implements ChainEventListener {
 		setCurrentConfig(newConfig);
 
 		if (newConfig.validConfiguration) {
-			startChain(newConfig);
+			// ANNA
+			// still using the CH f/w code, but made a change so the chain is not started
+			//startChain(newConfig);  
+			initChain(chainName);
 		}
     }
     
@@ -586,8 +401,7 @@ abstract public class GenericChain implements ChainEventListener {
      * This method can not be synchronized (deadlock with update/stop).
      * Rely on CFW synchronization of chain operations.
      */
-    @Override
-    public synchronized void chainStarted(ChainData chainData) {
+    public synchronized void chainStarted() {
     	
     	if (c_logger.isTraceDebugEnabled()) {
             c_logger.traceDebug("Chain " + toString() + " is started");
@@ -608,61 +422,6 @@ abstract public class GenericChain implements ChainEventListener {
             postEvent(topic, cfg, null);
         }
     }
-    
-    /**
-     * ChainEventListener method.
-     * This method can not be synchronized (deadlock with update/stop).
-     * Rely on CFW synchronization of chain operations.
-     */
-    @Override
-    public void chainStopped(ChainData chainData) {
-        final ActiveConfiguration cfg = currentConfig;
-
-        // Wake up anything waiting for the chain to stop
-        // (see the update method for one example)
-        stopWait.notifyStopped();
-
-        // Post an endpoint stopped event to anyone listening
-        String topic = owner.getEventTopic() + GenericServiceConstants.ENDPOINT_STOPPED;
-        postEvent(topic, cfg, null);
-    }
-
-    /**
-     * ChainEventListener method.
-     * This method can not be synchronized (deadlock with update/stop).
-     * Rely on CFW synchronization of chain operations.
-     */
-    @Override
-    public void chainQuiesced(ChainData chainData) {
-    	int oldState = chainState.getAndSet(ChainState.QUIESCED.val);
-
-        if (c_logger.isTraceDebugEnabled()) {
-            c_logger.traceDebug("chainQuiesced, chainData = " + chainData + " oldState = " + oldState);
-        }
-
-    }
-
-    /**
-     * ChainEventListener method.
-     * This method can not be synchronized (deadlock with update/stop).
-     * Rely on CFW synchronization of chain operations.
-     */
-    @Override
-    public void chainDestroyed(ChainData chainData) {
-        chainState.set(ChainState.DESTROYED.val);
-    }
-
-    /**
-     * ChainEventListener method.
-     * This method can not be synchronized (deadlock with update/stop).
-     * Rely on CFW synchronization of chain operations.
-     */
-    @Override
-    public void chainUpdated(ChainData chainData) {
-        // Not Applicable: this method is only called when the channels comprising the
-        // chain change. We're using fixed chain configurations (in terms of channel
-        // elements).
-    }
 
     /**
      * Publish an event relating to a chain starting/stopping with the
@@ -675,7 +434,7 @@ abstract public class GenericChain implements ChainEventListener {
             eventProps.put(GenericServiceConstants.ENDPOINT_ACTIVE_HOST, c.activeHost);
         }
 
-        eventProps.put(GenericServiceConstants.ENDPOINT_ACTIVE_PORT, c.activePort);
+        eventProps.put(GenericServiceConstants.ENDPOINT_ACTIVE_PORT, c.configHost);
         eventProps.put(GenericServiceConstants.ENDPOINT_CONFIG_HOST, c.configHost);
         eventProps.put(GenericServiceConstants.ENDPOINT_CONFIG_PORT, c.configPort);
         
@@ -712,68 +471,17 @@ abstract public class GenericChain implements ChainEventListener {
      * @param cd
      * @param newConfig 
      */
-    protected void addChain(String[] chanList, ChainData cd, ActiveConfiguration newConfig) {
-   	 try {
-		cd = getCfw().addChain(getChainName(), FlowType.INBOUND, chanList);
-		 cd.setEnabled(enabled);
-	        getCfw().addChainEventListener(this, getChainName());
-
-	        // initialize the chain: this will find/create the channels in the chain, 
-	        // initialize each channel, and create the chain. If there are issues with any
-	        // channel properties, they will surface here
-	        // THIS INCLUDES ATTEMPTING TO BIND TO THE PORT
-	        getCfw().initChain(chainName);
-	        
-	     // We configured the chain successfully
-	        newConfig.validConfiguration = true;
-	        
-		} catch (ChannelException e) {
-			handleStartupError(e, newConfig); // FFDCIgnore: CFW will have
-												// logged and FFDCd already
-		} catch (ChainException e) {
-			handleStartupError(e, newConfig); // FFDCIgnore: CFW will have
-												// logged and FFDCd already
-		} catch (Exception e) {
-			// The exception stack for this is all internals and does not belong
-			// in messages.log.
-			if(c_logger.isErrorEnabled())
-				c_logger.error("config.sipChain.error", getName(), e.toString());
-			handleStartupError(e, newConfig);
-		}
+    protected void addChain(String[] chanList, ActiveConfiguration newConfig) {
+        // We configured the chain successfully
+        newConfig.validConfiguration = true;
 	}
 
-
-    /**
-     * Class that is delaying the "stop" action for this chain
-     */
-    private class StopWait {
-    	
-
-    	/**
-    	 * waits @param timeout before the actually stop the chain
-    	 */
-        synchronized void waitForStop(long timeout) {
-            // wait for the configured timeout (the parameter) + a smidgen of time
-            // to allow the cfw to stop the chain after that configured quiesce 
-            // timeout expires
-            long interval = timeout + 2345L;
-            long waited = 0;
-
-            // If, as far as we know, the chain hasn't been stopped yet, wait for 
-            // the stop notification for at most the timeout amount of time.
-            while (chainState.get() > ChainState.STOPPED.val && waited < interval) {
-                long start = System.nanoTime();
-                try {
-                    wait(interval - waited);
-                } catch (InterruptedException ie) {
-                    // ignore
-                }
-                waited += System.nanoTime() - start;
-            }
+    private void initChain(String chainName) {
+    	// ANNA
+        if (c_logger.isTraceDebugEnabled()) {
+            c_logger.traceDebug("initChain. " + chainName);
         }
-
-        synchronized void notifyStopped() {
-            notifyAll();
-        }
+        
+        nettyBundle.addChain(this);
     }
 }

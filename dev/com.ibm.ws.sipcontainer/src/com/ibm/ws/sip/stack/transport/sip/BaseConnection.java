@@ -18,12 +18,11 @@ import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.ws.sip.parser.util.InetAddressCache;
 import com.ibm.ws.sip.stack.dispatch.Dispatcher;
 import com.ibm.ws.sip.stack.transaction.transport.Hop;
-import com.ibm.ws.sip.stack.transaction.transport.connections.SIPConnectionAdapter;
-import com.ibm.ws.sip.stack.transaction.transport.connections.SIPListenningConnection;
-import com.ibm.ws.sip.stack.transaction.transport.connections.SipMessageByteBuffer;
+import com.ibm.ws.sip.stack.transaction.transport.connections.*;
 import com.ibm.ws.sip.stack.transaction.util.SIPStackUtil;
-import com.ibm.wsspi.bytebuffer.WsByteBuffer;
-import com.ibm.wsspi.channelfw.ChannelFrameworkFactory;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 
 /**
  * base class for any connection object.
@@ -76,39 +75,29 @@ public abstract class BaseConnection extends SIPConnectionAdapter
 	}
 
 	/**
-	 * converts a SipMessageByteBuffer to a WsByteBuffer,
+	 * converts a SipMessageByteBuffer to a ByteBuf,
 	 * and recycles the SipMessageByteBuffer
 	 * @param stackBuffer a SipMessageByteBuffer
-	 * @return a WsByteBuffer allocated from the pool
+	 * @return a ByteBuf allocated from the pool
 	 */
-	protected static WsByteBuffer stackBufferToWsBuffer(SipMessageByteBuffer stackBuffer) {
+	protected static ByteBuf stackBufferToByteBuf(SipMessageByteBuffer stackBuffer) {
 		byte[] bytes = stackBuffer.getBytes();
 		int length = stackBuffer.getMarkedBytesNumber();
-		WsByteBuffer buffer = ChannelFrameworkFactory.getBufferManager().allocate(length);
-		buffer.put(bytes, 0, length);
+		ByteBuf buffer = Unpooled.buffer(length, length);
+        buffer.writeBytes(bytes, 0, length);
 		stackBuffer.reset();
-		buffer.flip();
-		return buffer;
+
+        return buffer;
 	}
 
 	/**
 	 * called when new data arrives
 	 */
-	protected void messageReceived(WsByteBuffer buffer) {
-		buffer.flip();
-		int length = buffer.remaining();
-		SipMessageByteBuffer data = SipMessageByteBuffer.fromPool();
-		data.ensureCapacity(length);
-		byte[] bytes = data.getBytes();
-		buffer.get(bytes, 0, length); // move data from WsByteBuffer to SipMessageByteBuffer
-		buffer.clear(); // for some reason it doesn't work without this
-		buffer.release(); // recycle old buffer
-		data.setContentSize(length);
-
+	protected void messageReceived(SipMessageByteBuffer buffer) {
 		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
-            Tr.debug(this, tc, "messageReceived " + data);
+            Tr.debug(this, tc, "messageReceived");
 		
-		Dispatcher.instance().queueIncomingDataEvent(data, this);
+		Dispatcher.instance().queueIncomingDataEvent(buffer, this);
 	}
 
 	/**

@@ -28,7 +28,9 @@ public class SipTlsOutboundChannelFactory extends SipChannelFactory
 	@Override
 	public Channel findOrCreateChannel(ChannelData config)
 			throws ChannelException {
-		return new SipTlsOutboundChannel(config);
+		//return new SipTlsOutboundChannel(config);
+		// TODO ANNA implement 
+		return null;
 	}
 
 	@Override

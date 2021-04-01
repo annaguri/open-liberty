@@ -19,6 +19,8 @@ import com.ibm.ws.sip.stack.transaction.transport.UseCompactHeaders;
 import com.ibm.ws.sip.stack.transaction.transport.connections.SIPListenningConnection;
 //TODO Liberty import com.ibm.ws.management.AdminHelper;
 
+import io.netty.channel.Channel;
+
 /**
  * a UDP connection object.
  * there is no actual connection in UDP, but this object is used for
@@ -31,13 +33,17 @@ public class SipUdpConnection extends BaseConnection
 	/** the connection link for sending outbound messages */
 	private UdpSender m_connLink;
 	
+	/** a Netty channel associated with this SIP connection  */
+	private Channel m_channel;
+	
 	/**
 	 * constructor for inbound channels
-	 * @param channel channel that created this connection
+	 * @param lc channel that created this connection
 	 * @param connLink the connection link for sending outbound messages
+	 * @param channel a Netty channel associated with this SIP connection 
 	 */
-	public SipUdpConnection(SIPListenningConnection channel, UdpSender connLink) {
-		this(null, 0, channel, connLink);
+	public SipUdpConnection(SIPListenningConnection lc, UdpSender connLink, Channel channel) {
+		this(null, 0, lc, connLink, channel);
 	}
 	
 	/**
@@ -46,30 +52,28 @@ public class SipUdpConnection extends BaseConnection
 	 * @param peerPort remote port number, 0 if inbound
 	 * @param channel channel that created this connection
 	 * @param connLink the connection link for sending outbound messages
+	 * @param channel a Netty channel associated with this SIP connection 
 	 */
-	public SipUdpConnection(String peerHost, int peerPort, SIPListenningConnection channel, UdpSender connLink) {
-		super(peerHost, peerPort, channel);
+	public SipUdpConnection(String peerHost, int peerPort, SIPListenningConnection lc, UdpSender connLink, Channel channel) {
+		super(peerHost, peerPort, lc);
 		m_connLink = connLink;
+		m_channel = channel;
 	}
 	
 	/**
 	 * @see com.ibm.ws.sip.stack.transaction.transport.connections.channelframework.BaseConnection#write(com.ibm.ws.sip.stack.transaction.transport.connections.SipMessageByteBuffer, boolean, UseCompactHeaders)
 	 */
 	public void write(MessageContext messageSendingContext, boolean considerMtu, UseCompactHeaders useCompactHeaders) throws IOException {
-		/*TODO Liberty if (AdminHelper.getPlatformHelper().isZOS()) {
-			// don't prepareBuffer() on Z. the conn-link is a SipConnLink
-			// (and not a SipUdpConnLink) who's about to call prepareBuffer()
-		}
-		else {
-			prepareBuffer(messageSendingContext,considerMtu,useCompactHeaders);
-		}*/
-
 		prepareBuffer(messageSendingContext,considerMtu,useCompactHeaders);
 		
 		// send the message, or queue it if cannot send right now
 		m_connLink.send(messageSendingContext, useCompactHeaders);
 	}
 
+	public Channel getChannel() {
+		return m_channel;
+	}
+	
 	/**
 	 * @see com.ibm.ws.sip.stack.transaction.transport.connections.SIPConnection#connect()
 	 */

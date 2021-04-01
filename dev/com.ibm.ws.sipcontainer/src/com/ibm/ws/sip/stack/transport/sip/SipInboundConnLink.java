@@ -18,9 +18,9 @@ import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.ws.sip.stack.dispatch.Dispatcher;
 import com.ibm.ws.sip.stack.transaction.transport.connections.SIPListenningConnection;
-import com.ibm.wsspi.channelfw.VirtualConnection;
-import com.ibm.wsspi.tcpchannel.TCPConnectionContext;
-import com.ibm.wsspi.tcpchannel.TCPReadRequestContext;
+import com.ibm.ws.sip.stack.transaction.transport.connections.SipMessageByteBuffer;
+
+import io.netty.channel.Channel;
 
 /**
  * base class for inbound connections of TCP or TLS.
@@ -36,29 +36,25 @@ public abstract class SipInboundConnLink extends SipConnLink
 	/** true if initialzed, false if not yet */
 	private boolean m_initialized;
 	
+	
 	/**
 	 * constructor
-	 * @param channel channel that created this connection
+	 * @param sipInboundChannel channel that created this connection
+	 * @param channel a Netty channel associated with this SIP channel
 	 */
-	public SipInboundConnLink(SipInboundChannel channel) {
-		super(channel);
+	public SipInboundConnLink(SipInboundChannel sipInboundChannel, Channel channel) {
+		super(sipInboundChannel, channel);
 		m_initialized = false;
 	}
 	
-	/**
-	 * called once per conn link
-	 * @param vc the virtual connection data
-	 */
-	protected void init(VirtualConnection vc) {
+
+	protected void init() {
 		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-            Tr.debug(this, tc,"init", "vc [" + vc + ']');
+            Tr.debug(this, tc,"init");
         }
-		setVirtualConnection(vc);
 		
-		// set the remote address
-		TCPConnectionContext connectionContext = (TCPConnectionContext)getDeviceLink().getChannelAccessor();
-		InetAddress remoteAddress = connectionContext.getRemoteAddress();
-		int remotePort = connectionContext.getRemotePort();
+		InetAddress remoteAddress = ((InetSocketAddress) m_channel.remoteAddress()).getAddress();
+		int remotePort = ((InetSocketAddress) m_channel.remoteAddress()).getPort();
 		InetSocketAddress address = new InetSocketAddress(remoteAddress, remotePort);
 		setRemoteAddress(address);
 		
@@ -66,21 +62,20 @@ public abstract class SipInboundConnLink extends SipConnLink
 		Dispatcher.instance().queueConnectionAcceptedEvent(listener, this);
 		connectionEstablished();
 	}
-
+	
 	// --------------------------
 	// SipConnLink implementation
 	// --------------------------
 
 	/**
 	 * called by the channel framework when a new connection is accepted
-	 * @see com.ibm.wsspi.channelfw.ConnectionReadyCallback#ready(com.ibm.wsspi.channelfw.framework.VirtualConnection)
 	 */
-	public void ready(VirtualConnection vc) {
+	public void ready() {
 		if (!m_initialized) {
 			synchronized (this) {
 				if (!m_initialized) {
 					m_initialized = true;
-					init(vc);
+					init();
 				}
 			}
 		}
@@ -88,18 +83,17 @@ public abstract class SipInboundConnLink extends SipConnLink
 
 	/**
 	 * called by the channel framework when new data arrives
-	 * @see com.ibm.wsspi.tcpchannel.TCPReadCompletedCallback#complete(com.ibm.wsspi.channelfw.framework.VirtualConnection, com.ibm.wsspi.tcpchannel.TCPReadRequestContext)
 	 */
-	public void complete(VirtualConnection vc, TCPReadRequestContext readCtx) {
+	public void complete(SipMessageByteBuffer buff) {
 		if (!m_initialized) {
 			synchronized (this) {
 				if (!m_initialized) {
 					m_initialized = true;
-					init(vc);
+					init();
 				}
 			}
 		}
-		super.complete(vc, readCtx);
+		super.complete(buff);
 	}
 
 	// ----------------------------

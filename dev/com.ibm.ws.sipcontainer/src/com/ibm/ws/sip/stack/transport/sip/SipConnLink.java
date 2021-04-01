@@ -11,9 +11,7 @@
 package com.ibm.ws.sip.stack.transport.sip;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
@@ -24,17 +22,10 @@ import com.ibm.ws.sip.stack.context.MessageContext;
 import com.ibm.ws.sip.stack.transaction.SIPTransactionStack;
 import com.ibm.ws.sip.stack.transaction.transport.UseCompactHeaders;
 import com.ibm.ws.sip.stack.transaction.transport.connections.SipMessageByteBuffer;
-import com.ibm.ws.sip.stack.transport.chfw.GenericEndpointImpl;
 import com.ibm.ws.sip.stack.util.StackTaskDurationMeasurer;
-import com.ibm.wsspi.bytebuffer.WsByteBuffer;
-import com.ibm.wsspi.channelfw.ConnectionLink;
-import com.ibm.wsspi.channelfw.ConnectionReadyCallback;
-import com.ibm.wsspi.channelfw.VirtualConnection;
-import com.ibm.wsspi.tcpchannel.TCPConnectionContext;
-import com.ibm.wsspi.tcpchannel.TCPReadCompletedCallback;
-import com.ibm.wsspi.tcpchannel.TCPReadRequestContext;
-import com.ibm.wsspi.tcpchannel.TCPRequestContext;
-import com.ibm.wsspi.tcpchannel.TCPWriteRequestContext;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.*;
 
 /**
  * base class for any sip stream connection that is managed by the channel
@@ -42,19 +33,10 @@ import com.ibm.wsspi.tcpchannel.TCPWriteRequestContext;
  * 
  * @author ran
  */
-public abstract class SipConnLink extends BaseConnection implements TCPReadCompletedCallback, ConnectionLink{
+public abstract class SipConnLink extends BaseConnection implements ChannelFutureListener {
 	/** class logger */
 	 /** RAS tracing variable */
     private static final TraceComponent tc = Tr.register(SipConnLink.class);
-
-	/** layer below this link */
-	private ConnectionLink m_linkOnDeviceSide;
-
-	/** layer above this link */
-	private ConnectionReadyCallback m_linkOnApplicationSide;
-
-	/** virtual connection associated with this connection link */
-	private VirtualConnection m_vc;
 
 	/**
 	 * queue of messages waiting to be sent out to the network. the first
@@ -85,6 +67,9 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 
 	/** true if an error occurred on this connection, that requires closing it down */
 	private boolean m_broken;
+	
+	/** Netty channel associated with that SIP connection */
+	protected Channel m_channel;
 
 	/** the maximum number of messages waiting in the outbound queue */
 	private static final int s_maxOutboundPendingMessages =
@@ -93,11 +78,13 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 	/**
 	 * constructor for inbound connections, or for udp
 	 * 
-	 * @param channel
+	 * @param sipInboundChannel
 	 *            channel that created this connection
+	 * @param channel
+	 *            Netty channel associated with that SIP connection
 	 */
-	public SipConnLink(SipInboundChannel channel) {
-		this(null, 0, channel);
+	public SipConnLink(SipInboundChannel sipInboundChannel, Channel channel) {
+		this(null, 0, sipInboundChannel, channel);
 	}
 
 	/**
@@ -110,25 +97,15 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 	 * @param channel
 	 *            channel that created this connection
 	 */
-	public SipConnLink(String peerHost, int peerPort, SipInboundChannel channel) {
-		super(peerHost, peerPort, channel);
-		m_linkOnDeviceSide = null;
-		m_linkOnApplicationSide = null;
-		m_vc = null;
+	public SipConnLink(String peerHost, int peerPort, SipInboundChannel sipInboundChannel, Channel channel) {
+		super(peerHost, peerPort, sipInboundChannel);
+		m_channel = channel;
 		m_outMessages = new LinkedList<MessageContext>();
 		m_sendPending = false;
 		m_messageParser = new StreamMessageParser(this);
 		m_readError = null;
 		m_closing = false;
 		m_broken = false;
-	}
-
-	/**
-	 * @return the connection context associated with the underlying device link
-	 */
-	private TCPConnectionContext getConnectionContext() {
-		TCPConnectionContext connectionContext = (TCPConnectionContext) m_linkOnDeviceSide.getChannelAccessor();
-		return connectionContext;
 	}
 
 	/**
@@ -151,6 +128,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 		}
 
 		// 2. prepare for reading inbound messages
+		/*
 		TCPConnectionContext connectionContext = getConnectionContext();
 		TCPReadRequestContext readCtx = connectionContext.getReadInterface();
 		if (readCtx == null) {
@@ -176,7 +154,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 			
 		} else {
 			complete(m_vc, readCtx);
-		}
+		}*/
 		
 		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
             Tr.debug(tc,  "connectionEstablished", "exit");
@@ -225,7 +203,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 		        }
 				
 				if (empty && isConnected() && !m_closing) {
-					if (sendNow(messageContext)) {
+					if (sendNow((MessageContext) messageContext)) {
 						// completed immediately. call completion code manually.
 						messageContext.writeComplete();
 					}
@@ -252,7 +230,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 						if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
 				            Tr.debug(tc,  "write", "adding messageContext = " + messageContext + "\n to m_outMessages");
 				        }
-						m_outMessages.addLast(messageContext);
+						m_outMessages.addLast((MessageContext) messageContext);
 					}
 				}
 			}
@@ -295,39 +273,23 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 			PerformanceMgr.getInstance().updateQueueMonitoringTaskDequeuedFromOutboundQueue();
 		}
 		
-		// convert SipMessageByteBuffer to WsByteBuffer, and recycle the
-		// SipMessageByteBuffer
 		SipMessageByteBuffer sipBuffer = messageContext.getSipMessageByteBuffer();
 		messageContext.setSipMessageByteBuffer(null);
-		WsByteBuffer buffer = stackBufferToWsBuffer(sipBuffer);
-		if (buffer == null) {
-			throw new IOException("message is null in SipConnLink.sendNow");
-		}
 
-		// todo is it a different type of deviceLink for TLS?
-		TCPConnectionContext connectionContext = getConnectionContext();
-		TCPWriteRequestContext writeCtx = connectionContext == null ? null : connectionContext.getWriteInterface();
-		if (writeCtx == null) {
-			if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-				Tr.debug(tc,  "sendNow", "Error: no write context");
-			}
-			throw new IOException("Error: no write context");
-		}
-		writeCtx.setBuffer(buffer);
-		
-		messageContext.setWsByteBuffer(buffer);
-		messageContext.setSipConnection(this);
-		m_sendPending = true;
-		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-			Tr.debug(tc,  "sendNow", "m_sendPending = " + m_sendPending );
-		}
-		
-		VirtualConnection connection = writeCtx.write(TCPWriteRequestContext.WRITE_ALL_DATA, messageContext, false,
-			TCPWriteRequestContext.NO_TIMEOUT);
+		ByteBuf buffer = stackBufferToByteBuf(sipBuffer);
+		final ChannelFuture writeFuture = m_channel.writeAndFlush(buffer);	
+
 		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
 			Tr.debug(tc,  "sendNow", "exit [" + System.identityHashCode(messageContext) + ']');
 		}
-		return connection != null;
+		
+		boolean complete = writeFuture.isDone();
+		
+		if (!complete) {
+			writeFuture.addListener(messageContext);
+		}
+		
+		return complete;
 	}
 
 	/**
@@ -341,87 +303,12 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 	// ConnectionLink implementation
 	// -----------------------------
 
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#getChannelAccessor()
-	 */
-	public Object getChannelAccessor() {
-		ConnectionLink device = getDeviceLink();
-		Object channelAccessor;
-		if (device == null) {
-			if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-				Tr.debug(tc, "Error in SipConnLink.getChannelAccessor - no device link");
-			}
-			channelAccessor = null;
-		} else {
-			channelAccessor = device.getChannelAccessor();
-		}
-		return channelAccessor;
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#close(com.ibm.wsspi.channelfw.framework.VirtualConnection,
-	 *      java.lang.Exception)
-	 */
-	public void close(VirtualConnection vc, Exception e) {
-		connectionError(e);
-	}
 
 	/**
 	 * @see com.ibm.wsspi.channelfw.ConnectionReadyCallback#destroy(java.lang.Exception)
 	 */
 	public void destroy(Exception e) {
 		connectionError(e);
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#getVirtualConnection()
-	 */
-	public VirtualConnection getVirtualConnection() {
-		return m_vc;
-	}
-
-	/**
-	 * associates this conn link with a virtual connection.
-	 * 
-	 * @param vc
-	 *            virtual connection to associate with this conn link
-	 */
-	protected void setVirtualConnection(VirtualConnection vc) {
-		m_vc = vc;
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#getApplicationCallback()
-	 */
-	public ConnectionReadyCallback getApplicationCallback() {
-		return m_linkOnApplicationSide;
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#setApplicationCallback(com.ibm.wsspi.channelfw.ConnectionReadyCallback)
-	 */
-	public void setApplicationCallback(ConnectionReadyCallback next) {
-		m_linkOnApplicationSide = next;
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#getDeviceLink()
-	 */
-	public ConnectionLink getDeviceLink() {
-		return m_linkOnDeviceSide;
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.ConnectionLink#setDeviceLink(com.ibm.wsspi.channelfw.ConnectionLink)
-	 */
-	public void setDeviceLink(ConnectionLink deviceLink) {
-		if (deviceLink == null) {
-			if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-				Tr.debug(tc,  "setDeviceLink", "null conn link");
-			}
-			return;
-		}
-		m_linkOnDeviceSide = deviceLink;
 	}
 
 	/*
@@ -434,6 +321,8 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 			Tr.debug(tc,  "writeComplete", "entry [" + System.identityHashCode(messageContext) + ']');
 		}
 
+		// TODO should we release a ByteBuf created by Unpooled.buffer
+		/*
 		// get its buffer and release it
 		WsByteBuffer oldBuffer = messageContext.getWsByteBuffer();
 
@@ -442,6 +331,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 			messageContext.setWsByteBuffer(null);
 			oldBuffer.release();
 		}
+		*/
 		synchronized (m_outMessages) {
 			m_sendPending = false;
 			if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
@@ -508,37 +398,19 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 		}
 	}
 
-	// ---------------------------------------
-	// TCPReadCompletedCallback implementation
-	// ---------------------------------------
-
 	/**
 	 * called by the channel framework when new data arrives
 	 * 
-	 * @see com.ibm.wsspi.tcpchannel.TCPReadCompletedCallback#complete(com.ibm.wsspi.channelfw.framework.VirtualConnection,
-	 *      com.ibm.wsspi.tcpchannel.TCPReadRequestContext)
 	 */
-	public void complete(VirtualConnection connection, TCPReadRequestContext readCtx) {
-		do {
-			// convert incoming WsByteBuffer to SipMessageByteBuffer and notify
-			// dispatch
-			WsByteBuffer[] buffers = (WsByteBuffer[]) readCtx.getBuffers();
-			int nBuffers = buffers.length;
-			for (int i = 0; i < nBuffers; i++) {
-				WsByteBuffer buffer = buffers[i];
-				super.messageReceived(buffer);
-				// the buffer is now recycled. allocate a new one for the next
-				// read.
-				buffer = GenericEndpointImpl.getBufferManager().allocate(READ_BUFFER_SIZE);
-				buffers[i] = buffer;
-			}
+	public void complete(SipMessageByteBuffer buffer) {
+		messageReceived(buffer);
+	}
 
-			// peek for more messages. if nothing, prepare for next read
-			if (!isConnected()) {
-				break;
-			}
-			connection = readCtx.read(1, this, true, TCPRequestContext.NO_TIMEOUT);
-		} while (connection != null);
+
+	@Override
+	public void operationComplete(ChannelFuture arg0) throws Exception {
+		// TODO Auto-generated method stub
+		
 	}
 
 	/*
@@ -548,7 +420,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 	 *      com.ibm.wsspi.tcp.channel.TCPReadRequestContext,
 	 *      java.io.IOException)
 	 */
-	public void error(VirtualConnection virtualConnection, TCPReadRequestContext readContext, IOException e) {
+	public void error(IOException e) {
 		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
 			Tr.debug(tc,  "error", "error received from TCP");
 		}
@@ -604,12 +476,6 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 
 		// mark this connection as closed, so future write() attempts fail immediately
 		super.close();
-
-		// close down the TCP connection
-		ConnectionLink device = m_linkOnDeviceSide;
-		if (device != null) {
-			device.close(m_vc, null);
-		}
 	}
 
 	/*
@@ -617,7 +483,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 	 * 
 	 * @see com.ibm.ws.sip.stack.transaction.transport.connections.SIPConnectionAdapter#connectionError(java.lang.Exception)
 	 */
-	public void connectionError(Exception e) {
+	public void connectionError(Throwable e) {
 		if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
 			Tr.debug(tc, "connectionError");
 		}
@@ -630,7 +496,7 @@ public abstract class SipConnLink extends BaseConnection implements TCPReadCompl
 
 		m_broken = true;
 
-		// we aviod loop everything was already handled
+		// we avoid loop everything was already handled
 		if (!isClosed()) {
 			super.connectionError(e);
 		}

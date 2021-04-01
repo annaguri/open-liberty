@@ -11,8 +11,6 @@
 package com.ibm.ws.sip.stack.transport.sip;
 
 import com.ibm.websphere.channelfw.ChannelData;
-import com.ibm.wsspi.tcpchannel.TCPConnectRequestContext;
-import com.ibm.wsspi.tcpchannel.TCPConnectionContext;
 
 /**
  * an outbound tcp channel
@@ -28,21 +26,6 @@ public class SipTcpOutboundChannel extends SipOutboundChannel
 	 */
 	public SipTcpOutboundChannel(ChannelData config) {
 		super(config);
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.Channel#getDeviceInterface()
-	 */
-	public Class getDeviceInterface() {
-		return TCPConnectionContext.class;
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.OutboundChannel#getDeviceAddress()
-	 * @see SipTcpOutboundConnLink#createConnectRequestContext(String, int)
-	 */
-	public Class getDeviceAddress() {
-		return TCPConnectRequestContext.class;
 	}
 
 }

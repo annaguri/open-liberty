@@ -13,20 +13,17 @@ package com.ibm.ws.sip.stack.transport.chfw;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.ibm.websphere.channelfw.ChainData;
-import com.ibm.websphere.channelfw.ChannelData;
-import com.ibm.websphere.channelfw.EndPointInfo;
-import com.ibm.websphere.channelfw.osgi.CHFWBundle;
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
-import com.ibm.ws.sip.stack.transport.sip.SipInboundChannel;
-import com.ibm.wsspi.channelfw.ChainEventListener;
+import com.ibm.ws.sip.stack.netty.transport.LibertyNettyBundle;
+
+import jain.protocol.ip.sip.ListeningPoint;
 
 /**
  * Encapsulation of steps for starting/stopping an http chain in a controlled/predictable
  * manner with a minimum of synchronization.
  */
-public class GenericUDPChain extends GenericChain implements ChainEventListener {
+public class GenericUDPChain extends GenericChain  {
     
 	
 	private static final TraceComponent tc = Tr.register(GenericUDPChain.class);
@@ -55,11 +52,11 @@ public class GenericUDPChain extends GenericChain implements ChainEventListener 
      * @param componentId The DS component id
      * @param cfw Channel framework
      */
-    public void init(String endpointId, Object componentId, CHFWBundle cfBundle, String name) {
+    public void init(String endpointId, Object componentId, LibertyNettyBundle nettyBundle, String name) {
     
         m_myName = "UDP_" + name + "_" + endpointId;
         
-        super.init(endpointId, componentId, cfBundle, name);
+        super.init(endpointId, componentId, nettyBundle, name);
     }
 
     /**
@@ -79,44 +76,25 @@ public class GenericUDPChain extends GenericChain implements ChainEventListener 
 	    
     	Map<Object, Object> chanProps;
 		Map<String, Object> udpOptions = GenericEndpointImpl.getUdpOptions();
-
-    	// Endpoint
-	    // define is a simple replace of the old value known to the endpointMgr
-	    EndPointInfo ep = endpointMgr.getEndPoint(getEndpointName());
-	    ep = endpointMgr.defineEndPoint(getEndpointName(), newConfig.configHost, newConfig.configPort);
 	    
 	    	 
 	    // UDP Channel
-	    ChannelData udpChannel = getChannel(getName());
-	    if (udpChannel == null) {
-	        String typeName = (String) udpOptions.get("type");
-	        chanProps = new HashMap<Object, Object>(udpOptions);
-	        chanProps.put("endPointName", getEndpointName());
-	        chanProps.put("hostname", ep.getHost());
-	        chanProps.put("port", String.valueOf(ep.getPort()));
-	
-	        udpChannel = addChannel(getName(), typeName, chanProps,newConfig);
-	        
-	    }
+        chanProps = new HashMap<Object, Object>(udpOptions);
+        chanProps.put("endPointName", getEndpointName());
+        chanProps.put("hostname", newConfig.configHost);
+        chanProps.put("port", String.valueOf(newConfig.configPort));
+
 	    
 	    // SIP Channel
-	    ChannelData sipChannel = getChannel(sipChannelName);
-        if (sipChannel == null) {
-            chanProps = new HashMap<Object, Object>();
-            chanProps.put("endPointName", newConfig.endpointOptions.get(ID));
-            chanProps.put("channelChainProtocolType", "udp");
-            sipChannel = addChannel(sipChannelName, SipInboundChannel.SipInboundChannelName, chanProps,newConfig);
-        }
+        chanProps = new HashMap<Object, Object>();
+        chanProps.put("endPointName", newConfig.endpointOptions.get(ID));
+        chanProps.put("channelChainProtocolType", "udp");
        
-	    ChainData cd = getCfw().getChain(getChainName());
-	    if (null == cd) {
-	        final String[] chanList;
+        final String[] chanList;
 
-	        chanList = new String[] { getName(), sipChannelName};
-	
-	        addChain(chanList,cd,newConfig);
-	       
-	    }
+        chanList = new String[] { getName(), sipChannelName};
+
+        addChain(chanList, newConfig);
     }
     
   /**
@@ -127,11 +105,8 @@ public class GenericUDPChain extends GenericChain implements ChainEventListener 
         // We've been through channel configuration before... 
         // We have to destroy/rebuild the chains because the channels don't
         // really support dynamic updates. *sigh*
-       stopChain(oldConfig.toString());
 
         // Remove any channels that have to be rebuilt.. 
-        if (newConfig.udpChanged(oldConfig))
-            removeChannel(m_myName);
 	}
 
     
@@ -151,6 +126,16 @@ public class GenericUDPChain extends GenericChain implements ChainEventListener 
     public void setupEventProps(Map<String, Object> eventProps) {
         //TODO Liberty - do we need to setup properties for this chain ?
     }
+
+	@Override
+	public Type getType() {
+		return Type.udp;
+	}
+
+	@Override
+	public String getTransport() {
+		return ListeningPoint.TRANSPORT_UDP;
+	}
 
  
 }

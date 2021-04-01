@@ -15,7 +15,6 @@ import java.io.IOException;
 
 import com.ibm.ws.sip.stack.context.MessageContext;
 import com.ibm.ws.sip.stack.transaction.transport.UseCompactHeaders;
-import com.ibm.wsspi.channelfw.ConnectionLink;
 
 /**
  * common interface for a connection link that can send out UDP messages.
@@ -23,7 +22,7 @@ import com.ibm.wsspi.channelfw.ConnectionLink;
  * 
  * @author ran
  */
-interface UdpSender extends ConnectionLink
+interface UdpSender 
 {
 	/** sends out a message 
 	 * @param useCompactHeaders TODO*/

@@ -10,6 +10,8 @@
  *******************************************************************************/
 package com.ibm.ws.sip.stack.transport.sip;
 
+import io.netty.channel.Channel;
+
 /**
  * represents an inbound tls connection
  * 
@@ -21,8 +23,8 @@ public class SipTlsInboundConnLink extends SipInboundConnLink
 	 * constructor
 	 * @param channel channel that created this connection
 	 */
-	public SipTlsInboundConnLink(SipInboundChannel channel) {
-		super(channel);
+	public SipTlsInboundConnLink(SipInboundChannel sipInboundChannel, Channel channel) {
+		super(sipInboundChannel, channel);
 	}
 
 	// ----------------------------

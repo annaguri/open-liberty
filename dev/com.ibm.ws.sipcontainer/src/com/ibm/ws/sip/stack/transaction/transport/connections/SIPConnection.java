@@ -185,7 +185,7 @@ public interface SIPConnection
 	 * @param e - the Exception, if exists
 	 *  handle messages that have not been sent yet.
 	 */
-	public void connectionError(Exception e);
+	public void connectionError(Throwable e);
 	
 	/**
 	 * a method that will handle success writing to connection

@@ -21,9 +21,6 @@ import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.ws.sip.stack.transport.chfw.GenericEndpointImpl;
 import com.ibm.wsspi.channelfw.ChannelFramework;
-import com.ibm.wsspi.channelfw.ConnectionLink;
-import com.ibm.wsspi.channelfw.OutboundChannel;
-import com.ibm.wsspi.channelfw.VirtualConnection;
 import com.ibm.wsspi.channelfw.exception.ChannelException;
 
 /**
@@ -31,7 +28,7 @@ import com.ibm.wsspi.channelfw.exception.ChannelException;
  * 
  * @author ran
  */
-public abstract class SipOutboundChannel implements OutboundChannel
+public abstract class SipOutboundChannel 
 {
 	/** class logger */
 	 
@@ -123,15 +120,6 @@ public abstract class SipOutboundChannel implements OutboundChannel
 	 */
 	public Class[] getApplicationAddress() {
 		return null;
-	}
-
-	/*
-	 * (non-Javadoc)
-	 * @see com.ibm.wsspi.channelfw.Channel#getConnectionLink(com.ibm.wsspi.channelfw.VirtualConnection)
-	 */
-	public ConnectionLink getConnectionLink(VirtualConnection vc) {
-		// return the outbound conn link that is currently trying to connect()
-		return SipOutboundConnLink.getPendingConnection();
 	}
 	
 	 /*

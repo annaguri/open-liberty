@@ -15,7 +15,6 @@ import java.util.Map;
 import org.osgi.framework.Constants;
 
 import com.ibm.websphere.ras.annotation.Trivial;
-import com.ibm.wsspi.channelfw.exception.ChainException;
 import com.ibm.wsspi.kernel.service.utils.MetatypeUtils;
 
 /**
@@ -49,9 +48,6 @@ public class ActiveConfiguration {
 
 	/** Reference to the Generic Chain */
     private GenericChain _chain = null;
-    
-	/** Active listening port. */
-    volatile int activePort = -1;
     
 	/** Active listening host */
 	String activeHost = null;
@@ -109,17 +105,7 @@ public class ActiveConfiguration {
      * @return
      */
     public int getActivePort() {
-        if (configPort < 0)
-            return -1;
-
-        if (activePort == -1) {
-            try {
-                activePort = _chain.getCfw().getListeningPort(_chain.getChainName());
-            } catch (ChainException ce) {
-                activePort = -1;
-            }
-        }
-        return activePort;
+        return configPort;
     }
 
     /**
@@ -229,7 +215,6 @@ public class ActiveConfiguration {
         return getClass().getSimpleName()
                + "[host=" + configHost
                + ",port=" + configPort
-               + ",listening=" + activePort
                + ",complete=" + isReady()
                + ",tcpOptions=" + System.identityHashCode(tcpOptions)
                + ",udpOptions=" + System.identityHashCode(udpOptions)

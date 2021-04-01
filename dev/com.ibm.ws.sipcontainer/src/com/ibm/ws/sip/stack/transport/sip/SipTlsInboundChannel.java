@@ -10,17 +10,13 @@
  *******************************************************************************/
 package com.ibm.ws.sip.stack.transport.sip;
 
-import jain.protocol.ip.sip.ListeningPoint;
-
 import java.io.IOException;
 import java.net.InetAddress;
 
-import com.ibm.websphere.channelfw.ChannelData;
 import com.ibm.ws.sip.stack.transaction.transport.connections.SIPConnection;
 import com.ibm.ws.sip.stack.transaction.util.SIPStackUtil;
-import com.ibm.wsspi.channelfw.ConnectionLink;
-import com.ibm.wsspi.channelfw.VirtualConnection;
-import com.ibm.wsspi.tcpchannel.TCPConnectionContext;
+
+import jain.protocol.ip.sip.ListeningPoint;
 //TODO Liberty import com.ibm.ws.management.AdminHelper;
 
 /**
@@ -36,17 +32,8 @@ public class SipTlsInboundChannel extends SipInboundChannel
 	/**
 	 * constructor
 	 */
-	public SipTlsInboundChannel(ChannelData config, ListeningPoint lp,
-		String outboundChainName)
-	{
-		super(config, lp, outboundChainName,TCPConnectionContext.class);
-	}
-
-	/**
-	 * @see com.ibm.wsspi.channelfw.Channel#getConnectionLink(com.ibm.wsspi.channelfw.framework.VirtualConnection)
-	 */
-	public ConnectionLink getConnectionLink(VirtualConnection vc) {
-		return new SipTlsInboundConnLink(this); // random - match to Liberty
+	public SipTlsInboundChannel(ListeningPoint lp, String outboundChainName) {
+		super(lp, outboundChainName);
 	}
 
 	// --------------------------------------
@@ -59,7 +46,8 @@ public class SipTlsInboundChannel extends SipInboundChannel
 	 */
 	public SIPConnection createConnection(InetAddress remoteAddress, int remotePort) throws IOException {
 		String remoteHost = SIPStackUtil.getHostAddress(remoteAddress);
-		return new SipTlsOutboundConnLink(remoteHost, remotePort, this);
+		return new SipTlsOutboundConnLink(remoteHost, remotePort, this, null);
+		// TODO ANNA see how to associate a Netty channel to the SIP outbound channel
 	}
 
 }

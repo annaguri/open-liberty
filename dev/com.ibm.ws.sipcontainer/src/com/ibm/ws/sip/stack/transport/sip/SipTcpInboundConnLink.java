@@ -10,20 +10,24 @@
  *******************************************************************************/
 package com.ibm.ws.sip.stack.transport.sip;
 
+import io.netty.channel.Channel;
+
 /**
  * represents an inbound tcp connection
  * 
  * @author ran
  */
-public class SipTcpInboundConnLink extends SipInboundConnLink
-{
+public class SipTcpInboundConnLink extends SipInboundConnLink {
 	/**
 	 * constructor
-	 * @param channel channel that created this connection
+	 * 
+	 * @param sipInboundChannel channel that created this connection
+	 * @param channel a Netty channel associated with this inbound SIP channel
 	 */
-	public SipTcpInboundConnLink(SipInboundChannel channel) {
-		super(channel);
+	public SipTcpInboundConnLink(SipInboundChannel sipInboundChannel, Channel channel) {
+		super(sipInboundChannel, channel);
 	}
+
 
 	// ----------------------------
 	// SIPConnection implementation
@@ -56,5 +60,5 @@ public class SipTcpInboundConnLink extends SipInboundConnLink
 	public int getPathMTU() {
 		return -1;
 	}
-	
+
 }

@@ -21,30 +21,17 @@ import org.osgi.service.cm.Configuration;
 import org.osgi.service.cm.ConfigurationAdmin;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.ComponentException;
-import org.osgi.service.component.annotations.Component;
-import org.osgi.service.component.annotations.ConfigurationPolicy;
-import org.osgi.service.component.annotations.Deactivate;
-import org.osgi.service.component.annotations.Modified;
-import org.osgi.service.component.annotations.Reference;
-import org.osgi.service.component.annotations.ReferenceCardinality;
-import org.osgi.service.component.annotations.ReferencePolicy;
-import org.osgi.service.component.annotations.ReferencePolicyOption;
+import org.osgi.service.component.annotations.*;
 import org.osgi.service.event.EventAdmin;
 
-import com.ibm.sip.util.log.Log;
-import com.ibm.sip.util.log.LogMgr;
-import com.ibm.sip.util.log.Situation;
-import com.ibm.websphere.channelfw.osgi.CHFWBundle;
+import com.ibm.sip.util.log.*;
 import com.ibm.websphere.channelfw.osgi.ChannelFactoryProvider;
 import com.ibm.websphere.ras.annotation.Trivial;
 import com.ibm.ws.sip.container.internal.SipContainerComponent;
+import com.ibm.ws.sip.stack.netty.transport.LibertyNettyBundle;
 import com.ibm.ws.sip.stack.transport.virtualhost.SipVirtualHostAdapter;
-import com.ibm.wsspi.bytebuffer.WsByteBufferPoolManager;
 import com.ibm.wsspi.channelfw.ChannelConfiguration;
-import com.ibm.wsspi.channelfw.ChannelFramework;
-import com.ibm.wsspi.kernel.service.utils.FilterUtils;
-import com.ibm.wsspi.kernel.service.utils.FrameworkState;
-import com.ibm.wsspi.kernel.service.utils.MetatypeUtils;
+import com.ibm.wsspi.kernel.service.utils.*;
 
 //We need the immediate=true flag because of the race condition between the point when Channel Framework calls to the "started"
 //callback and point when we take listening point when Container starts. 
@@ -119,7 +106,7 @@ public class GenericEndpointImpl {
 	private final AtomicInteger endpointState = new AtomicInteger(DISABLED);
 
 	/** Required, static Channel framework reference */
-	private static CHFWBundle m_chfw = null;
+	private static LibertyNettyBundle m_nettyBundle = null;
 
 	/** Current endpoint configuration */
 	private volatile Map<String, Object> endpointConfig = null;
@@ -127,16 +114,16 @@ public class GenericEndpointImpl {
 	/** "True" when this endpoint is started */
 	private volatile boolean endpointStarted = false;
 
-	/** "localhost" value defined in the congiruation */
+	/** "localhost" value defined in the configuration */
 	private volatile String host = "localhost";
 
-	/** TCP port value defined in the congiruation */
+	/** TCP port value defined in the configuration */
 	private volatile int tcpPort = -1;
 
-	/** UDP port value defined in the congiruation */
+	/** UDP port value defined in the configuration */
 	private volatile int udpPort = -1;
 
-	/** TLS port value defined in the congiruation */
+	/** TLS port value defined in the configuration */
 	private volatile int tlsPort = -1;
 
 	/** number of retries in case of bind failure, default is 60 */
@@ -150,7 +137,7 @@ public class GenericEndpointImpl {
 
 	/** Name of this Endpoint */
 	private volatile String name = null;
-
+	
 	/** Reference to the TCP chain relates to this Endpoint */
 	private final GenericChain _genericTCPChain = new GenericTCPChain(this,
 			false);
@@ -171,22 +158,6 @@ public class GenericEndpointImpl {
 
 	/** Reference to the Future action */
 	private Future<?> actionFuture = null;
-
-	/**
-	 * 
-	 * @return ChannelFramework reference
-	 */
-	public static ChannelFramework getChannelFramework() {
-		return m_chfw.getFramework();
-	}
-
-	/**
-	 * 
-	 * @return WsByteBufferPoolManager related to this channel Framework
-	 */
-	public static WsByteBufferPoolManager getBufferManager() {
-		return m_chfw.getBufferManager();
-	}
 
 	/**
 	 * action runner
@@ -220,13 +191,7 @@ public class GenericEndpointImpl {
 			synchronized (actionLock) {
 				// Always allow stops.
 				if (c_logger.isTraceDebugEnabled())
-					c_logger.traceDebug("EndpointAction: stopping chains "
-							+ GenericEndpointImpl.this, _genericUDPChain,
-							_genericTCPChain, _genericTLSChain);
-				// TODO Liberty - unmark UDP
-				_genericUDPChain.stop();
-				_genericTCPChain.stop();
-				_genericTLSChain.stop();
+					c_logger.traceDebug("EndpointAction: stopping chains");
 			}
 		}
 
@@ -245,10 +210,8 @@ public class GenericEndpointImpl {
 			synchronized (actionLock) {
 				// Always allow stops.
 				if (c_logger.isTraceDebugEnabled())
-					c_logger.traceDebug("EndpointAction: stopping sips chain "
-							+ GenericEndpointImpl.this, _genericTLSChain);
+					c_logger.traceDebug("EndpointAction: stopping sips chain");
 
-				_genericTLSChain.stop();
 			}
 		}
 
@@ -288,6 +251,7 @@ public class GenericEndpointImpl {
 		}
 	};
 
+
 	/**
 	 * Activate this Endpoint
 	 */
@@ -322,18 +286,22 @@ public class GenericEndpointImpl {
 				c_logger.event("activate sipEndpoint " + this);
 			}
 
+			if (c_logger.isEventEnabled()) {
+				c_logger.event("activate sipEndpoint " + this);
+			}
+
 			if (udpOptions != null) {
-				_genericUDPChain.init(name, cid, m_chfw, "InboundUDPChain");
+				_genericUDPChain.init(name, cid, m_nettyBundle, "InboundUDPChain");
 			}
 
 			if (tcpOptions != null) {
-				_genericTCPChain.init(name, cid, m_chfw, "InboundTCPChain");
+				_genericTCPChain.init(name, cid, m_nettyBundle, "InboundTCPChain");
 			}
 
 			if (sslOptions != null) {
-				_genericTLSChain.init(name, cid, m_chfw, "InboundTLSChain");
+				_genericTLSChain.init(name, cid, m_nettyBundle, "InboundTLSChain");
 			}
-
+			
 			startChains(properties);
 			
 			try {
@@ -572,7 +540,7 @@ public class GenericEndpointImpl {
 			c_logger.event("enable ssl support ", this);
 		}
 		sslSupport = config;
-		_genericTLSChain.enable();
+		//_genericTLSChain.enable();
 
 		// TODO Liberty: currently we do not support update on the fly for
 		// Endpoint
@@ -597,7 +565,7 @@ public class GenericEndpointImpl {
 
 		if (sslSupport != null) {
 			sslSupport = null;
-			_genericTLSChain.disable();
+			//_genericTLSChain.disable();
 			// removal of ssl support includes removal of the ssl channel
 			// factory
 			// the CFW is going to disable this chain once the factory goes
@@ -687,8 +655,8 @@ public class GenericEndpointImpl {
 			c_logger.event("unsetTcpOptions, stoppint TCP and TLS chains "
 					+ config.getProperty("id") + this);
 		}
-		_genericTCPChain.stop();
-		_genericTLSChain.stop();
+		//_genericTCPChain.stop();
+		//_genericTLSChain.stop();
 		
 		if(!isForcedDefaultEndpointIdDeactivate){
 			tcpOptions = null;	
@@ -728,7 +696,7 @@ public class GenericEndpointImpl {
 			c_logger.event("unsetUdpOptions and stop UDP related chain "
 					+ config.getProperty("id"), this);
 		}
-		_genericUDPChain.stop();
+		//_genericUDPChain.stop();
 		
 		if(!isForcedDefaultEndpointIdDeactivate){
 			udpOptions = null;
@@ -755,50 +723,31 @@ public class GenericEndpointImpl {
 		return udpOptions == null ? null : udpOptions.getConfiguration();
 	}
 
-	/**
-	 * DS method for setting the required channel framework service.
-	 * 
-	 * @param bundle
-	 */
-	@Reference(name = "chfwBundle")
-	protected void setChfwBundle(CHFWBundle bundle) {
+	@Reference(name = "nettyBundle")
+	protected void setNettyBundle(LibertyNettyBundle bundle) {
 		if (c_logger.isEventEnabled()) {
-			c_logger.event("setChfwBundle " + this);
+			c_logger.event("setNettyBundle " + this);
 		}
-		m_chfw = bundle;
+		m_nettyBundle = bundle;
 	}
 
 	/**
 	 * This is a required static reference, this won't be called until the
 	 * component has been deactivated
 	 * 
-	 * @param bundle
-	 *            CHFWBundle instance to unset
+	 * @param bundle instance to unset
 	 */
-	protected void unsetChfwBundle(CHFWBundle bundle) {
+	protected void unsetNettyBundle(LibertyNettyBundle bundle) {
 		if (c_logger.isEventEnabled()) {
-			c_logger.event("unsetChfwBundle and stop all open chains"
+			c_logger.event("unsetNettyBundle and stop all open chains"
 					+ this);
 		}
-		
+		// TODO ANNA implement 
 		if(!isForcedDefaultEndpointIdDeactivate){
-			m_chfw = null;	
+			m_nettyBundle = null;	
 		}
 		
 		performAction(stopAction);
-		
-	}
-
-	/**
-	 * Returns reference to ChannelFramework
-	 * 
-	 * @return
-	 */
-	protected CHFWBundle getChfwBundle() {
-		if (c_logger.isEventEnabled()) {
-			c_logger.event("chfwBundle = " + m_chfw);
-		}
-		return m_chfw;
 	}
 
 	/**

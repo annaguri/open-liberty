@@ -467,7 +467,7 @@ public abstract class SIPStreamConectionAdapter extends SIPConnectionAdapter
 		}
 	}
 	
-	public void connectionError(Exception e){
+	public void connectionError(Throwable e){
 		//we aviod loop everything was already handled
 		if (!isClosed()) {
 			super.connectionError(e);
